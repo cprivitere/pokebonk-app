@@ -24,6 +24,12 @@ publish:
   owner: CharcherGit
   repo: pokebonk-app
   releaseType: release
+toolsets:
+  # Static AppImage runtime (no FUSE2 dependency) + zstd: Steam Deck cold start was 60s+ on xz (squashfs
+  # decompresses on every read). v27 makes this the default; beta label only.
+  appimage: "1.0.3"
+appImage:
+  compression: zstd
 asar: true
 compression: maximum
 # Solo el idioma de cada jugador cambia los textos de Chromium (menús contextuales): el resto de locales sobra.

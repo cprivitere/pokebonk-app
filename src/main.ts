@@ -38,8 +38,12 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling');
 // The menu music starts without a first click.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-// Long Survival runs keep many sprite sheets and particles alive: a larger heap than a browser tab gets.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
+// Long Survival runs keep many sprite sheets and particles alive: a larger heap than a browser tab gets.
+// Wayland sessions (Steam Deck Game Mode) + the Vulkan ANGLE backend don't mix: Chromium picks Wayland when it
+// exists and then can't present through Vulkan. Force the X11 Ozone backend (XWayland) on Linux; native Wayland's
+// perks (HDR, VRR, fractional scaling) aren't worth a black screen. No-op everywhere else.
+if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
 
 /**
  * Settings of the client itself (Ajustes → Pantalla, see `display` below), in `client.json` of the data folder.
