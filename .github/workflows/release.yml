@@ -21,11 +21,9 @@ jobs:
         include:
           - os: windows-latest
             target: --win
-          # macOS disabled 2026-11-07: DMG self-test hangs on macos-latest (app never exits within 90 s),
-          # see run 42337371830 / job 128297248826. Re-enable by uncommenting the three lines below.
-          # - os: macos-latest
-          #   # ASCII bundle name: with «é» the helpers end up NFD and CFBundleName NFC, and the app crashes on launch (issue #5).
-          #   target: --mac -c.productName=PokeBonk
+          - os: macos-latest
+            # ASCII bundle name: with «é» the helpers end up NFD and CFBundleName NFC, and the app crashes on launch (issue #5).
+            target: --mac -c.productName=PokeBonk
           - os: ubuntu-latest
             target: --linux
     runs-on: ${{ matrix.os }}
@@ -46,6 +44,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
+          trap 'hdiutil detach /tmp/pb 2>/dev/null || true' EXIT
           dmg=$(ls release/*.dmg | head -1)
           hdiutil attach "$dmg" -mountpoint /tmp/pb -nobrowse -readonly
           app=$(ls -d /tmp/pb/*.app | head -1)
@@ -54,12 +53,21 @@ jobs:
           ls "$app/Contents/Frameworks" | grep ' Helper' | sed 's/ Helper.*//' | sort -u > /tmp/helpers.txt
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
-          "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
-          pid=$!
-          for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-          kill -0 $pid 2>/dev/null && { kill $pid; echo "Self-test did not finish"; exit 1; }
-          wait $pid
-          cat /tmp/st/report.json
+          # The launch is the flaky part (first run downloads/attaches slowly, network stalls): the helper-name check
+          # above stays fail-fast (deterministic packaging), only this retries up to 3 times before failing the job.
+          attempt=1
+          until [ $attempt -gt 3 ]; do
+            echo "Self-test attempt $attempt/3"
+            rm -rf /tmp/st
+            "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
+            pid=$!
+            for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; attempt=$((attempt + 1)); sleep 10; continue; fi
+            wait $pid || echo "Self-test exited non-zero (attempt $attempt)"
+            cat /tmp/st/report.json
+            break
+          done
+          [ $attempt -gt 3 ] && { echo "Self-test failed after 3 attempts"; exit 1; }
           hdiutil detach /tmp/pb
       - uses: actions/upload-artifact@v7
         with:
