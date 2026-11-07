@@ -21,9 +21,11 @@ jobs:
         include:
           - os: windows-latest
             target: --win
-          - os: macos-latest
-            # ASCII bundle name: with «é» the helpers end up NFD and CFBundleName NFC, and the app crashes on launch (issue #5).
-            target: --mac -c.productName=PokeBonk
+          # macOS disabled 2026-11-07: DMG self-test hangs on macos-latest (app never exits within 90 s),
+          # see run 42337371830 / job 128297248826. Re-enable by uncommenting the three lines below.
+          # - os: macos-latest
+          #   # ASCII bundle name: with «é» the helpers end up NFD and CFBundleName NFC, and the app crashes on launch (issue #5).
+          #   target: --mac -c.productName=PokeBonk
           - os: ubuntu-latest
             target: --linux
     runs-on: ${{ matrix.os }}
