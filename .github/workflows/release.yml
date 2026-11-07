@@ -69,21 +69,30 @@ jobs:
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
           # The launch is the flaky part (cold runners stall on the first boot: Chromium's network service
-          # crashes and restarts). No priming: a kill -9'd throwaway leaves GPU/network children behind that
-          # fight the real launch over the profile. The helper-name check above stays fail-fast (deterministic
-          # packaging); only the launch retries, up to 3 times at 90s + 5s backoff, before failing the job.
+          # crashes and restarts, ~66s in the two pre-prime failures — and priming is out: a kill -9'd
+          # throwaway leaves orphans that fight the real launch over the profile). So each attempt waits on
+          # report.json itself instead of a fixed 90s sleep: the moment the app writes it we're done
+          # (healthy runs finish in ~35s). A dead process + missing report fails the attempt immediately;
+          # a live process gets up to 150s before it's killed as hung. Up to 3 attempts, 5s backoff.
           attempt=1
           until [ $attempt -gt 3 ]; do
             echo "Self-test attempt $attempt/3"
-            rm -rf /tmp/st
+            rm -rf /tmp/st; mkdir -p /tmp/st
             "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
             pid=$!
-            for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
-            wait $pid || echo "Self-test exited non-zero (attempt $attempt)"
-            if [ ! -s /tmp/st/report.json ]; then echo "No report (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
-            cat /tmp/st/report.json
-            break
+            elapsed=0
+            while [ ! -s /tmp/st/report.json ] && [ $elapsed -lt 150 ]; do
+              if ! kill -0 $pid 2>/dev/null; then break; fi
+              sleep 1; elapsed=$((elapsed + 1))
+            done
+            if [ -s /tmp/st/report.json ]; then
+              wait $pid 2>/dev/null || echo "Self-test exited non-zero after report (attempt $attempt)"
+              cat /tmp/st/report.json
+              break
+            fi
+            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; else echo "No report, process already gone (attempt $attempt)"; fi
+            wait $pid 2>/dev/null || true
+            attempt=$((attempt + 1)); sleep 5
           done
           [ $attempt -gt 3 ] && { echo "Self-test failed after 3 attempts"; exit 1; }
           hdiutil detach /tmp/pb
