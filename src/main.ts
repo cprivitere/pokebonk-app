@@ -40,11 +40,12 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,In
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
 // Long Survival runs keep many sprite sheets and particles alive: a larger heap than a browser tab gets.
-// Wayland sessions (Steam Deck Game Mode) + the Vulkan ANGLE backend don't mix: Chromium picks Wayland when it
-// exists and then can't present through Vulkan. Force the X11 Ozone backend (XWayland) on Linux; native Wayland's
-// perks (HDR, VRR, fractional scaling) aren't worth a black screen. No-op everywhere else.
-if (process.platform === 'linux') app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
-
+// Linux display server (Steam Deck Game Mode runs under Gamescope): Chromium's auto choice lands on native
+// Wayland, where the Vulkan presenter can't draw ("--ozone-platform=wayland is not compatible with Vulkan").
+// The ozone-platform-hint=x11 shipped in 1.4.0 didn't stick once Vulkan was on, so pin the platform outright
+// when an X display exists — under Gamescope that's XWayland, which Vulkan presents through fine. Pure-Wayland
+// sessions (no DISPLAY) keep the auto platform; the backend block below softens Vulkan to GL there.
+if (process.platform === 'linux' && process.env.DISPLAY) app.commandLine.appendSwitch('ozone-platform', 'x11');
 /**
  * Settings of the client itself (Ajustes → Pantalla, see `display` below), in `client.json` of the data folder.
  * V-Sync is a Chromium switch, so it applies on the next launch: off, frames are not tied to the monitor
@@ -96,7 +97,10 @@ const launchCfg = readCfg();
 // V-Sync stays on whatever the saved setting says (2026-10-31): with `disable-gpu-vsync` + `disable-frame-rate-limit`
 // requestAnimationFrame fired thousands of times a second and the game crawled while the FPS counter said hundreds
 // (docs/DESKTOP.md). The web game no longer offers the option and switches old clients back on (src/core/desktop.ts).
-if (launchCfg.angle !== 'auto') {
+// Linux backend: a saved Vulkan on a pure-Wayland session (no DISPLAY, so the x11 pin above didn't run) can't
+// present — Vulkan draws nowhere. Run that session on GL instead; the setting stays saved for sessions with X.
+const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
+if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
   app.commandLine.appendSwitch('use-angle', launchCfg.angle);
   // Vulkan needs its feature on as well in this Chromium.
   if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan');
