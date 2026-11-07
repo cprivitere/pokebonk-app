@@ -68,16 +68,29 @@ jobs:
           ls "$app/Contents/Frameworks" | grep ' Helper' | sed 's/ Helper.*//' | sort -u > /tmp/helpers.txt
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
-          # The launch is the flaky part (cold runners stall on the first boot: Chromium's network service
-          # crashes and restarts, ~66s in the two pre-prime failures — and priming is out: a kill -9'd
-          # throwaway leaves orphans that fight the real launch over the profile). So each attempt waits on
-          # report.json itself instead of a fixed 90s sleep: the moment the app writes it we're done
-          # (healthy runs finish in ~35s). A dead process + missing report fails the attempt immediately;
-          # a live process gets up to 150s before it's killed as hung. Up to 3 attempts, 5s backoff.
+          # The launch is the flaky part: every first boot on a cold runner hangs (Chromium's network service
+          # crashes and restarts), so each attempt primes with a ~30s SIGTERM throwaway before the real
+          # bounded check. SIGTERM (not -9) lets it shut its child tree down cleanly; the helper-name check
+          # above stays fail-fast (deterministic packaging). Up to 3 attempts, 150s cap each, 5s backoff.
           attempt=1
           until [ $attempt -gt 3 ]; do
             echo "Self-test attempt $attempt/3"
             rm -rf /tmp/st; mkdir -p /tmp/st
+            # Prime: every first boot on a cold runner hangs (network-service crash/restart observed every
+            # run), so pay ~30s of warmup up front instead of the full 150s cap. SIGTERM lets the throwaway
+            # shut its child tree down cleanly (the kill -9 version orphaned GPU/network children that fought
+            # the real launch); the 5s grace + kill -9 is only for a throwaway that ignores SIGTERM, and the
+            # prime dir is removed so nothing leaks into the real check.
+            "$app/Contents/MacOS/$exe" --selftest=/tmp/prime --selftest-wait=1000 &
+            prime=$!
+            pelapsed=0
+            while [ $pelapsed -lt 30 ]; do
+              if ! kill -0 $prime 2>/dev/null; then break; fi
+              sleep 1; pelapsed=$((pelapsed + 1))
+            done
+            if kill -0 $prime 2>/dev/null; then kill $prime 2>/dev/null; sleep 5; fi
+            if kill -0 $prime 2>/dev/null; then kill -9 $prime 2>/dev/null; echo "Prime ignored SIGTERM, SIGKILLed"; fi
+            wait $prime 2>/dev/null || true; rm -rf /tmp/prime
             "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
             pid=$!
             elapsed=0
