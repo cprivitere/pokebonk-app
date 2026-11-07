@@ -28,5 +28,8 @@
   },
   "dependencies": {
     "electron-updater": "6.8.12"
+  },
+  "allowScripts": {
+    "electron-winstaller@5.4.0": true
   }
 }

@@ -58,9 +58,10 @@ portable:
   artifactName: PokeBonk-${version}-win-portable.${ext}
 mac:
   target:
+    # DMG only: the zip target's only consumer was differential Squirrel.Mac updates, which need an Apple
+    # Developer identity we don't have (updater.ts: macOS installs never self-update). Shipping the DMG alone
+    # also skips the zip's 220 MB blockmap pass (~10 min of the mac job) and its upload artifact.
     - target: dmg
-      arch: [universal]
-    - target: zip
       arch: [universal]
   category: public.app-category.games
   icon: build/icon.png

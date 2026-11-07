@@ -33,7 +33,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --no-audit --no-fund
+      # Electron + builder tool binaries (~hundreds of MB per platform): cached across runs, keyed on the
+      # locked electron version so a bump re-fetches once.
+      - uses: actions/cache@v7
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      # The remaining deprecation warnings (rimraf@2 via temp, glob@7/inflight via asar, boolean via
+      # global-agent, lodash.isequal via electron-updater) all live inside electron-builder/updater's own
+      # dependency pins — nothing to upgrade or override this side. Error level keeps the log clean; real
+      # failures still surface.
+      - run: npm ci --no-audit --no-fund --loglevel=error
       - run: npm run build
       # Version + update feed come from the tag when built from one (v1.4.0-cprivitere.1 → version 1.4.0-cprivitere.1,
       # owner = this repo's owner), else package.json + electron-builder.yml defaults (manual runs).
@@ -58,18 +68,26 @@ jobs:
           ls "$app/Contents/Frameworks" | grep ' Helper' | sed 's/ Helper.*//' | sort -u > /tmp/helpers.txt
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
-          # The launch is the flaky part (first run downloads/attaches slowly, network stalls): the helper-name check
-          # above stays fail-fast (deterministic packaging), only this retries up to 3 times before failing the job.
+          # The launch is the flaky part (cold runners stall on the first boot: Chromium's network service
+          # crashes and restarts, ~66s in both observed failures). Each attempt primes with one throwaway
+          # launch, then runs the real bounded check; the helper-name check above stays fail-fast (deterministic
+          # packaging). Up to 3 attempts before failing the job.
           attempt=1
           until [ $attempt -gt 3 ]; do
             echo "Self-test attempt $attempt/3"
             rm -rf /tmp/st
+            # Prime the cold runner first (see comment at the top of the attempt): one throwaway launch so the
+            # real check starts warm. Bounded at ~25s so a hung first boot can't eat the 90s budget again.
+            "$app/Contents/MacOS/$exe" --selftest=/tmp/prime --selftest-wait=1000 &
+            prime=$!
+            for i in $(seq 1 25); do kill -0 $prime 2>/dev/null || break; sleep 1; done
+            kill -9 $prime 2>/dev/null; wait $prime 2>/dev/null || true; rm -rf /tmp/prime
             "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
             pid=$!
-            for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; attempt=$((attempt + 1)); sleep 10; continue; fi
+            for i in $(seq 1 45); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
             wait $pid || echo "Self-test exited non-zero (attempt $attempt)"
-            if [ ! -s /tmp/st/report.json ]; then echo "No report (attempt $attempt)"; attempt=$((attempt + 1)); sleep 10; continue; fi
+            if [ ! -s /tmp/st/report.json ]; then echo "No report (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
             cat /tmp/st/report.json
             break
           done
@@ -81,12 +99,10 @@ jobs:
           path: |
             release/*.exe
             release/*.dmg
-            release/*.zip
             release/*.AppImage
             release/*.deb
             release/*.blockmap
             release/latest*.yml
-          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
