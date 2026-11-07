@@ -14,17 +14,17 @@
     "start": "npm run build && electron .",
     "dev": "npm run build && electron . --url=http://localhost:5173 --devtools",
     "selftest": "npm run build && electron . --selftest=out/selftest",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac -c.productName=PokeBonk",
-    "dist:linux": "npm run build && electron-builder --linux",
-    "dist:linux:docker": "npm run build && docker run --rm -v \"%INIT_CWD%:/project\" -v /project/node_modules -w /project electronuserland/builder:22 bash -c \"npm ci --no-audit --no-fund && npx electron-builder --linux -c.directories.output=/tmp/rel && cp /tmp/rel/*.AppImage /tmp/rel/*.deb /project/release/\"",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac -c.productName=PokeBonk --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:linux:docker": "npm run build && docker run --rm -v \"%INIT_CWD%:/project\" -v /project/node_modules -w /project electronuserland/builder:24 bash -c \"npm ci --no-audit --no-fund && npx electron-builder --linux --publish never -c.directories.output=/tmp/rel && cp /tmp/rel/*.AppImage /tmp/rel/*.deb /project/release/\"",
     "sync:repo": "node sync-repo.mjs"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
-    "electron": "44.7.1",
-    "electron-builder": "26.17.0",
-    "typescript": "5.9.3"
+    "@types/node": "26.6.6",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "electron-updater": "6.8.11"
