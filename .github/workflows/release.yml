@@ -69,22 +69,16 @@ jobs:
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
           # The launch is the flaky part (cold runners stall on the first boot: Chromium's network service
-          # crashes and restarts, ~66s in both observed failures). Each attempt primes with one throwaway
-          # launch, then runs the real bounded check; the helper-name check above stays fail-fast (deterministic
-          # packaging). Up to 3 attempts before failing the job.
+          # crashes and restarts). No priming: a kill -9'd throwaway leaves GPU/network children behind that
+          # fight the real launch over the profile. The helper-name check above stays fail-fast (deterministic
+          # packaging); only the launch retries, up to 3 times at 90s + 5s backoff, before failing the job.
           attempt=1
           until [ $attempt -gt 3 ]; do
             echo "Self-test attempt $attempt/3"
             rm -rf /tmp/st
-            # Prime the cold runner first (see comment at the top of the attempt): one throwaway launch so the
-            # real check starts warm. Bounded at ~25s so a hung first boot can't eat the 90s budget again.
-            "$app/Contents/MacOS/$exe" --selftest=/tmp/prime --selftest-wait=1000 &
-            prime=$!
-            for i in $(seq 1 25); do kill -0 $prime 2>/dev/null || break; sleep 1; done
-            kill -9 $prime 2>/dev/null; wait $prime 2>/dev/null || true; rm -rf /tmp/prime
             "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
             pid=$!
-            for i in $(seq 1 45); do kill -0 $pid 2>/dev/null || break; sleep 1; done
+            for i in $(seq 1 90); do kill -0 $pid 2>/dev/null || break; sleep 1; done
             if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
             wait $pid || echo "Self-test exited non-zero (attempt $attempt)"
             if [ ! -s /tmp/st/report.json ]; then echo "No report (attempt $attempt)"; attempt=$((attempt + 1)); sleep 5; continue; fi
