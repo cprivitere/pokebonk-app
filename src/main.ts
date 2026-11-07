@@ -40,12 +40,7 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,In
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
 // Long Survival runs keep many sprite sheets and particles alive: a larger heap than a browser tab gets.
-// Linux display server (Steam Deck Game Mode runs under Gamescope): Chromium's auto choice lands on native
-// Wayland, where the Vulkan presenter can't draw ("--ozone-platform=wayland is not compatible with Vulkan").
-// The ozone-platform-hint=x11 shipped in 1.4.0 didn't stick once Vulkan was on, so pin the platform outright
-// when an X display exists — under Gamescope that's XWayland, which Vulkan presents through fine. Pure-Wayland
-// sessions (no DISPLAY) keep the auto platform; the backend block below softens Vulkan to GL there.
-if (process.platform === 'linux' && process.env.DISPLAY) app.commandLine.appendSwitch('ozone-platform', 'x11');
+// (Linux display server is decided with the graphics backend below, once the saved setting is loaded.)
 /**
  * Settings of the client itself (Ajustes → Pantalla, see `display` below), in `client.json` of the data folder.
  * V-Sync is a Chromium switch, so it applies on the next launch: off, frames are not tied to the monitor
@@ -97,8 +92,15 @@ const launchCfg = readCfg();
 // V-Sync stays on whatever the saved setting says (2026-10-31): with `disable-gpu-vsync` + `disable-frame-rate-limit`
 // requestAnimationFrame fired thousands of times a second and the game crawled while the FPS counter said hundreds
 // (docs/DESKTOP.md). The web game no longer offers the option and switches old clients back on (src/core/desktop.ts).
-// Linux backend: a saved Vulkan on a pure-Wayland session (no DISPLAY, so the x11 pin above didn't run) can't
-// present — Vulkan draws nowhere. Run that session on GL instead; the setting stays saved for sessions with X.
+// Linux display server: Chromium's auto choice can land on native Wayland, where the Vulkan presenter can't
+// present ("--ozone-platform=wayland is not compatible with Vulkan"). The 1.4.0 hint (ozone-platform-hint)
+// doesn't stick once Vulkan is on, so pin x11 outright — but ONLY where it helps: a Gamescope session (Deck
+// Game Mode, XDG_CURRENT_DESKTOP=gamescope, per Valve's dos1) with XWayland to present through, or an explicit
+// saved Vulkan with an X display. Blanket-pinning every X session broke Deck Desktop on auto (5.x command
+// buffer failures: Chromium's default pick works there) — those keep the default. A saved Vulkan on a
+// pure-Wayland session (no DISPLAY, so the pin can't run) softens to GL for that launch; the setting stays.
+const gamescope = process.platform === 'linux' && (process.env.XDG_CURRENT_DESKTOP ?? '').toLowerCase().includes('gamescope');
+if (process.platform === 'linux' && process.env.DISPLAY && (gamescope || launchCfg.angle === 'vulkan')) app.commandLine.appendSwitch('ozone-platform', 'x11');
 const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
 if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
   app.commandLine.appendSwitch('use-angle', launchCfg.angle);
