@@ -59,7 +59,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
-          trap 'hdiutil detach /tmp/pb 2>/dev/null || true' EXIT
+          trap 'hdiutil detach -force /tmp/pb 2>/dev/null || true' EXIT
           dmg=$(ls release/*.dmg | head -1)
           hdiutil attach "$dmg" -mountpoint /tmp/pb -nobrowse -readonly
           app=$(ls -d /tmp/pb/*.app | head -1)
@@ -100,7 +100,7 @@ jobs:
             attempt=$((attempt + 1)); sleep 5
           done
           [ $attempt -gt 3 ] && { echo "Self-test failed after 3 attempts"; exit 1; }
-          hdiutil detach /tmp/pb
+          hdiutil detach -force /tmp/pb
       - uses: actions/upload-artifact@v7
         with:
           name: pokebonk-${{ runner.os }}
