@@ -93,12 +93,24 @@ jobs:
           done
           [ $attempt -gt 3 ] && { echo "Self-test failed after 3 attempts"; exit 1; }
           hdiutil detach /tmp/pb
+      # Player-facing zip of the .app for drag-installs, made here with ditto: builder's zip target is off
+      # (its mandatory blockmap pass cost ~10 min on the 220 MB universal zip), and this produces no .blockmap.
+      - name: Zip the macOS app (no blockmap)
+        if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          app=$(ls -d release/mac-universal/*.app | head -1)
+          zip="release/$(ls release/*.dmg | head -1 | xargs basename .dmg).zip"
+          rm -f "$zip"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
+          ls -la "$zip"
       - uses: actions/upload-artifact@v7
         with:
           name: pokebonk-${{ runner.os }}
           path: |
             release/*.exe
             release/*.dmg
+            release/*.zip
             release/*.AppImage
             release/*.deb
             release/*.blockmap
