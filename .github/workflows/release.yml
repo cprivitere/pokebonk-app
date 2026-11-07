@@ -35,7 +35,7 @@ jobs:
           cache: npm
       # Electron + builder tool binaries (~hundreds of MB per platform): cached across runs, keyed on the
       # locked electron version so a bump re-fetches once.
-      - uses: actions/cache@v7
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/electron
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
