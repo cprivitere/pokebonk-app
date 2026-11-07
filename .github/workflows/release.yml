@@ -68,33 +68,23 @@ jobs:
           ls "$app/Contents/Frameworks" | grep ' Helper' | sed 's/ Helper.*//' | sort -u > /tmp/helpers.txt
           echo "CFBundleName: $name"; cat /tmp/helpers.txt
           [ "$(cat /tmp/helpers.txt)" = "$name" ] || { echo "Helper names do not match CFBundleName"; exit 1; }
-          # The launch is the flaky part: every first boot on a cold runner hangs (Chromium's network service
-          # crashes and restarts), so each attempt primes with a ~30s SIGTERM throwaway before the real
-          # bounded check. SIGTERM (not -9) lets it shut its child tree down cleanly; the helper-name check
-          # above stays fail-fast (deterministic packaging). Up to 3 attempts, 150s cap each, 5s backoff.
+          # The launch is the flaky part: the first boot on a cold runner always hangs (Chromium's network
+          # service crashes and restarts, and a hung Chromium can't even process SIGTERM — priming was tried
+          # and the throwaway had to be SIGKILLed, orphaning children that fought the real launch). So
+          # attempt 1 is sacrificial: launch it, give it 60s, then abandon it without any kill dance and move
+          # on. Attempts 2+ race the dying tree and usually win (a fresh launch initializes faster than a
+          # crashed one finishes dying); each waits on report.json up to 150s. Up to 3 attempts, 5s backoff.
+          # The helper-name check above stays fail-fast (deterministic packaging).
           attempt=1
           until [ $attempt -gt 3 ]; do
             echo "Self-test attempt $attempt/3"
             rm -rf /tmp/st; mkdir -p /tmp/st
-            # Prime: every first boot on a cold runner hangs (network-service crash/restart observed every
-            # run), so pay ~30s of warmup up front instead of the full 150s cap. SIGTERM lets the throwaway
-            # shut its child tree down cleanly (the kill -9 version orphaned GPU/network children that fought
-            # the real launch); the 5s grace + kill -9 is only for a throwaway that ignores SIGTERM, and the
-            # prime dir is removed so nothing leaks into the real check.
-            "$app/Contents/MacOS/$exe" --selftest=/tmp/prime --selftest-wait=1000 &
-            prime=$!
-            pelapsed=0
-            while [ $pelapsed -lt 30 ]; do
-              if ! kill -0 $prime 2>/dev/null; then break; fi
-              sleep 1; pelapsed=$((pelapsed + 1))
-            done
-            if kill -0 $prime 2>/dev/null; then kill $prime 2>/dev/null; sleep 5; fi
-            if kill -0 $prime 2>/dev/null; then kill -9 $prime 2>/dev/null; echo "Prime ignored SIGTERM, SIGKILLed"; fi
-            wait $prime 2>/dev/null || true; rm -rf /tmp/prime
             "$app/Contents/MacOS/$exe" --selftest=/tmp/st --selftest-wait=6000 &
             pid=$!
+            # Sacrificial first attempt: a short fuse, no report check, no kill — just leave the corpse.
+            cap=60; if [ $attempt -gt 1 ]; then cap=150; fi
             elapsed=0
-            while [ ! -s /tmp/st/report.json ] && [ $elapsed -lt 150 ]; do
+            while [ ! -s /tmp/st/report.json ] && [ $elapsed -lt $cap ]; do
               if ! kill -0 $pid 2>/dev/null; then break; fi
               sleep 1; elapsed=$((elapsed + 1))
             done
@@ -103,8 +93,10 @@ jobs:
               cat /tmp/st/report.json
               break
             fi
-            if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; else echo "No report, process already gone (attempt $attempt)"; fi
-            wait $pid 2>/dev/null || true
+            if [ $attempt -eq 1 ]; then echo "Sacrificial attempt hung as expected, moving on"; else
+              if kill -0 $pid 2>/dev/null; then kill $pid; echo "Self-test did not finish (attempt $attempt)"; else echo "No report, process already gone (attempt $attempt)"; fi
+              wait $pid 2>/dev/null || true
+            fi
             attempt=$((attempt + 1)); sleep 5
           done
           [ $attempt -gt 3 ] && { echo "Self-test failed after 3 attempts"; exit 1; }
