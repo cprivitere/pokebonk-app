@@ -35,8 +35,13 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      # No certificates: ad-hoc signature on the Mac (electron-builder.yml) and none on Windows.
-      - run: npx electron-builder ${{ matrix.target }} --publish never
+      # Version + update feed come from the tag when built from one (v1.4.0-cprivitere.1 → version 1.4.0-cprivitere.1,
+      # owner = this repo's owner), else package.json + electron-builder.yml defaults (manual runs).
+      - run: |
+          extra=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then extra="-c.extraMetadata.version=${GITHUB_REF#refs/tags/v}"; fi
+          npx electron-builder ${{ matrix.target }} --publish never $extra -c.publish.owner="$GITHUB_REPOSITORY_OWNER" -c.publish.repo=pokebonk-app
+        shell: bash
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       # The DMG as players get it: the helpers must have exactly the bytes of CFBundleName, and the app must start and quit by itself.
@@ -95,5 +100,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           draft: true
+          # v1.4.0 → full release; v1.4.0-anything → prerelease (stable clients never offered it).
+          prerelease: ${{ contains(github.ref_name, '-') }}
           name: PokéBonk ${{ github.ref_name }}
           files: dist/*

@@ -44,7 +44,8 @@ export function startUpdater(win: () => BrowserWindow | null, beforeInstall: () 
   st = { state: 'idle' };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowPrerelease = false;
+  // Suffixed fork builds (1.4.0-cprivitere.1) live on GitHub prereleases: only they look at them. Stock 1.4.0 keeps false.
+  autoUpdater.allowPrerelease = app.getVersion().includes('-');
   const log = (m: unknown) => console.warn('[update]', String(m).split(/\r?\n/)[0]);
   autoUpdater.logger = { info: () => {}, warn: log, error: log, debug: () => {} };
   autoUpdater.on('checking-for-update', () => { if (st.state !== 'ready') set({ state: 'checking' }); });
