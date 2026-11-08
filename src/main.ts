@@ -115,8 +115,9 @@ if (process.platform === 'linux' && process.env.LD_PRELOAD) {
  const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
  if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
    app.commandLine.appendSwitch('use-angle', launchCfg.angle);
-   // Vulkan needs its feature on as well in this Chromium.
-   if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan');
+  // Vulkan needs its features on as well in this Chromium: plain `Vulkan` alone is silently ignored (falls
+  // back to GL, no error) — the ANGLE-on-Vulkan path needs the full triple (proven on Deck RADV VANGOGH).
+  if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan,VulkanFromANGLE,DefaultANGLEVulkan');
  }
 
 /**
