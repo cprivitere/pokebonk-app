@@ -1,11 +1,3 @@
-// Steam's overlay (LD_PRELOAD=gameoverlayrenderer.so) is mapped into this process by the dynamic linker
-// before any JS runs, and forked children (zygote) inherit the poisoned mapping regardless of later env
-// edits — so strip it here, before the electron import, so exec-spawned children start clean.
-if (process.platform === 'linux' && process.env.LD_PRELOAD) {
-  const kept = process.env.LD_PRELOAD.split(':').filter((p) => !p.includes('gameoverlayrenderer'));
-  if (kept.length) process.env.LD_PRELOAD = kept.join(':');
-  else delete process.env.LD_PRELOAD;
-}
 /**
  * PokéBonk desktop client (docs/DESKTOP.md). It loads the live game from pokebonk.com, so it is always the same version
  * as the web and the server, with the same origin (saves, accounts, captcha and co-op work unchanged). What it adds is
@@ -107,15 +99,15 @@ const launchCfg = readCfg();
 // saved Vulkan with an X display. Blanket-pinning every X session broke Deck Desktop on auto (5.x command
 // buffer failures: Chromium's default pick works there) — those keep the default. A saved Vulkan on a
 // pure-Wayland session (no DISPLAY, so the pin can't run) softens to GL for that launch; the setting stays.
- const gamescope = process.platform === 'linux' && (process.env.XDG_CURRENT_DESKTOP ?? '').toLowerCase().includes('gamescope');
- if (process.platform === 'linux' && process.env.DISPLAY && (gamescope || launchCfg.angle === 'vulkan')) app.commandLine.appendSwitch('ozone-platform', 'x11');
- const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
- if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
-   app.commandLine.appendSwitch('use-angle', launchCfg.angle);
+const gamescope = process.platform === 'linux' && (process.env.XDG_CURRENT_DESKTOP ?? '').toLowerCase().includes('gamescope');
+if (process.platform === 'linux' && process.env.DISPLAY && (gamescope || launchCfg.angle === 'vulkan')) app.commandLine.appendSwitch('ozone-platform', 'x11');
+const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
+if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
+  app.commandLine.appendSwitch('use-angle', launchCfg.angle);
   // Vulkan needs its features on as well in this Chromium: plain `Vulkan` alone is silently ignored (falls
   // back to GL, no error) — the ANGLE-on-Vulkan path needs the full triple (proven on Deck RADV VANGOGH).
   if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan,VulkanFromANGLE,DefaultANGLEVulkan');
- }
+}
 
 /**
  * Windows decides per executable which GPU a program uses (Settings → System → Display → Graphics). Without an
