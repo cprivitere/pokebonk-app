@@ -99,14 +99,25 @@ const launchCfg = readCfg();
 // saved Vulkan with an X display. Blanket-pinning every X session broke Deck Desktop on auto (5.x command
 // buffer failures: Chromium's default pick works there) — those keep the default. A saved Vulkan on a
 // pure-Wayland session (no DISPLAY, so the pin can't run) softens to GL for that launch; the setting stays.
-const gamescope = process.platform === 'linux' && (process.env.XDG_CURRENT_DESKTOP ?? '').toLowerCase().includes('gamescope');
-if (process.platform === 'linux' && process.env.DISPLAY && (gamescope || launchCfg.angle === 'vulkan')) app.commandLine.appendSwitch('ozone-platform', 'x11');
-const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
-if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
-  app.commandLine.appendSwitch('use-angle', launchCfg.angle);
-  // Vulkan needs its feature on as well in this Chromium.
-  if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan');
+// Steam's overlay (LD_PRELOAD=gameoverlayrenderer.so) SIGSEGVs Chromium's zygote at spawn: its robust-mutex
+// constructor writes its TID into shared memory, but the zygote's PID namespace restarts TIDs at 1, so the
+// futex list corrupts cross-namespace (ValveSoftware/steam-for-linux#13552). Kills Game Mode outright
+// (zygote -1 → GPU 1002 loop → "GPU process isn't usable"), equally lethal on Desktop Steam launches — and
+// useless with Chromium anyway (hooks Xlib XNextEvent, Chromium reads xcb). Strip it on all Linux before any
+// child forks; keep any other preloads intact.
+if (process.platform === 'linux' && process.env.LD_PRELOAD) {
+  const kept = process.env.LD_PRELOAD.split(':').filter((p) => !p.includes('gameoverlayrenderer'));
+  if (kept.length) process.env.LD_PRELOAD = kept.join(':');
+  else delete process.env.LD_PRELOAD;
 }
+ const gamescope = process.platform === 'linux' && (process.env.XDG_CURRENT_DESKTOP ?? '').toLowerCase().includes('gamescope');
+ if (process.platform === 'linux' && process.env.DISPLAY && (gamescope || launchCfg.angle === 'vulkan')) app.commandLine.appendSwitch('ozone-platform', 'x11');
+ const waylandOnlyVulkan = process.platform === 'linux' && !process.env.DISPLAY && launchCfg.angle === 'vulkan';
+ if (launchCfg.angle !== 'auto' && !waylandOnlyVulkan) {
+   app.commandLine.appendSwitch('use-angle', launchCfg.angle);
+   // Vulkan needs its feature on as well in this Chromium.
+   if (launchCfg.angle === 'vulkan') app.commandLine.appendSwitch('enable-features', 'Vulkan');
+ }
 
 /**
  * Windows decides per executable which GPU a program uses (Settings → System → Display → Graphics). Without an
